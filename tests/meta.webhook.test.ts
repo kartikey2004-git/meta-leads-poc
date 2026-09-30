@@ -1,11 +1,38 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import request from 'supertest';
+import type { WebSocketServer } from 'ws';
 
 vi.mock('../src/config/env', () => ({
-  env: { META_VERIFY_TOKEN: 'test-token', META_APP_SECRET: 'test-secret', PORT: 3000 },
+  env: {
+    META_VERIFY_TOKEN: 'test-token',
+    META_APP_SECRET: 'test-secret',
+    DATABASE_URL: 'postgresql://localhost/test',
+    PORT: 3000,
+  },
 }));
 
-const { default: app } = await import('../src/app');
+const mockCreate = vi.fn();
+const mockFindMany = vi.fn();
+
+vi.mock('../src/lib/prisma', () => ({
+  default: {
+    lead: {
+      create: mockCreate,
+      findMany: mockFindMany,
+    },
+  },
+}));
+
+const mockBroadcast = vi.fn();
+vi.mock('../src/lib/websocket', () => ({
+  initWebSocket: vi.fn(),
+  broadcastLeadCreated: mockBroadcast,
+}));
+
+const { default: createApp } = await import('../src/app');
+
+const mockWss = {} as WebSocketServer;
+const app = createApp(mockWss);
 
 const validLeadPayload = {
   object: 'page',
@@ -27,6 +54,19 @@ const validLeadPayload = {
     },
   ],
 };
+
+const mockLead = {
+  id: 'cuid_1',
+  metaLeadId: 'lead_1',
+  formId: 'form_1',
+  pageId: 'page_1',
+  createdTime: new Date(1700000000 * 1000),
+  receivedAt: new Date(),
+};
+
+beforeEach(() => {
+  vi.clearAllMocks();
+});
 
 describe('GET /health', () => {
   it('returns 200 with status ok', async () => {
@@ -67,11 +107,44 @@ describe('GET /webhooks/meta - verification', () => {
 });
 
 describe('POST /webhooks/meta - lead webhook', () => {
-  it('returns 200 for valid lead payload', async () => {
-    const res = await request(app)
-      .post('/webhooks/meta')
-      .send(validLeadPayload);
+  it('returns 200 and persists a new lead', async () => {
+    mockCreate.mockResolvedValueOnce(mockLead);
+
+    const res = await request(app).post('/webhooks/meta').send(validLeadPayload);
+
     expect(res.status).toBe(200);
+    expect(mockCreate).toHaveBeenCalledOnce();
+    expect(mockCreate).toHaveBeenCalledWith({
+      data: {
+        metaLeadId: 'lead_1',
+        formId: 'form_1',
+        pageId: 'page_1',
+        createdTime: new Date(1700000000 * 1000),
+      },
+    });
+  });
+
+  it('broadcasts lead.created after successful persistence', async () => {
+    mockCreate.mockResolvedValueOnce(mockLead);
+
+    await request(app).post('/webhooks/meta').send(validLeadPayload);
+
+    expect(mockBroadcast).toHaveBeenCalledOnce();
+    expect(mockBroadcast).toHaveBeenCalledWith(mockWss, mockLead);
+  });
+
+  it('handles duplicate metaLeadId idempotently — no second row, no second broadcast', async () => {
+    mockCreate
+      .mockResolvedValueOnce(mockLead)
+      .mockRejectedValueOnce(Object.assign(new Error('Unique constraint'), { code: 'P2002' }));
+
+    const res1 = await request(app).post('/webhooks/meta').send(validLeadPayload);
+    const res2 = await request(app).post('/webhooks/meta').send(validLeadPayload);
+
+    expect(res1.status).toBe(200);
+    expect(res2.status).toBe(200);
+    expect(mockCreate).toHaveBeenCalledTimes(2);
+    expect(mockBroadcast).toHaveBeenCalledOnce();
   });
 
   it('returns 400 for malformed JSON', async () => {
@@ -83,29 +156,56 @@ describe('POST /webhooks/meta - lead webhook', () => {
   });
 
   it('returns 400 for missing required fields', async () => {
-    const res = await request(app)
-      .post('/webhooks/meta')
-      .send({ object: 'page' });
+    const res = await request(app).post('/webhooks/meta').send({ object: 'page' });
     expect(res.status).toBe(400);
   });
 
-  it('returns 200 for non-leadgen field event', async () => {
+  it('returns 200 for non-leadgen field event without touching the database', async () => {
     const payload = {
       object: 'page',
-      entry: [
-        {
-          id: '123',
-          time: 1700000000,
-          changes: [
-            {
-              field: 'other_field',
-              value: {},
-            },
-          ],
-        },
-      ],
+      entry: [{ id: '123', time: 1700000000, changes: [{ field: 'other_field', value: {} }] }],
     };
     const res = await request(app).post('/webhooks/meta').send(payload);
     expect(res.status).toBe(200);
+    expect(mockCreate).not.toHaveBeenCalled();
+    expect(mockBroadcast).not.toHaveBeenCalled();
+  });
+
+  it('returns 500 when database throws unexpected error', async () => {
+    mockCreate.mockRejectedValueOnce(new Error('Connection refused'));
+
+    const res = await request(app).post('/webhooks/meta').send(validLeadPayload);
+
+    expect(res.status).toBe(500);
+    expect(mockBroadcast).not.toHaveBeenCalled();
+  });
+});
+
+describe('GET /leads', () => {
+  it('returns persisted leads ordered newest first', async () => {
+    mockFindMany.mockResolvedValueOnce([mockLead]);
+
+    const res = await request(app).get('/leads');
+
+    expect(res.status).toBe(200);
+    expect(mockFindMany).toHaveBeenCalledWith({ orderBy: { receivedAt: 'desc' } });
+    expect(res.body).toHaveLength(1);
+  });
+
+  it('returns empty array when no leads exist', async () => {
+    mockFindMany.mockResolvedValueOnce([]);
+
+    const res = await request(app).get('/leads');
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual([]);
+  });
+
+  it('returns 500 when database fails', async () => {
+    mockFindMany.mockRejectedValueOnce(new Error('DB error'));
+
+    const res = await request(app).get('/leads');
+
+    expect(res.status).toBe(500);
   });
 });

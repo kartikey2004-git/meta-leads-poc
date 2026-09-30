@@ -1,0 +1,20 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Lead {
+  id          String   @id @default(cuid())
+  metaLeadId  String   @unique
+  formId      String
+  pageId      String
+  createdTime DateTime
+  receivedAt  DateTime @default(now())
+
+  @@index([formId])
+  @@index([createdTime])
+}

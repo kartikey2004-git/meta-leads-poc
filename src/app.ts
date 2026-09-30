@@ -1,14 +1,19 @@
 import express, { Request, Response } from 'express';
-import metaWebhookRouter from './modules/meta/meta.webhook';
+import type { WebSocketServer } from 'ws';
+import createMetaWebhookRouter from './modules/meta/meta.webhook';
+import leadRouter from './modules/lead/lead.router';
 
-const app = express();
+export default function createApp(wss: WebSocketServer): express.Application {
+  const app = express();
 
-app.use(express.json());
+  app.use(express.json());
 
-app.get('/health', (_req: Request, res: Response) => {
-  res.json({ status: 'ok' });
-});
+  app.get('/health', (_req: Request, res: Response) => {
+    res.json({ status: 'ok' });
+  });
 
-app.use('/', metaWebhookRouter);
+  app.use('/', createMetaWebhookRouter(wss));
+  app.use('/', leadRouter);
 
-export default app;
+  return app;
+}

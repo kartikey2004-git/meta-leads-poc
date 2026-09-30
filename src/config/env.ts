@@ -3,6 +3,7 @@ import { z } from 'zod';
 const envSchema = z.object({
   META_VERIFY_TOKEN: z.string().min(1),
   META_APP_SECRET: z.string().min(1),
+  DATABASE_URL: z.string().url(),
   PORT: z.coerce.number().default(3000),
 });
 
