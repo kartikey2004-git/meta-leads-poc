@@ -8,13 +8,18 @@ datasource db {
 }
 
 model Lead {
-  id          String   @id @default(cuid())
-  metaLeadId  String   @unique
-  formId      String
-  pageId      String
-  createdTime DateTime
-  receivedAt  DateTime @default(now())
+  id           String   @id @default(cuid())
+  metaLeadId   String   @unique
+  formId       String
+  pageId       String
+  name         String?
+  email        String?
+  phone        String?
+  customFields Json?
+  createdTime  DateTime
+  receivedAt   DateTime @default(now())
 
   @@index([formId])
   @@index([createdTime])
+  @@index([email])
 }

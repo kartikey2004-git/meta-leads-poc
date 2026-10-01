@@ -6,6 +6,10 @@ type PersistedLead = {
   metaLeadId: string;
   formId: string;
   pageId: string;
+  name: string | null;
+  email: string | null;
+  phone: string | null;
+  customFields: unknown;
   createdTime: Date;
   receivedAt: Date;
 };
@@ -40,6 +44,10 @@ export function broadcastLeadCreated(wss: WebSocketServer, lead: PersistedLead):
       metaLeadId: lead.metaLeadId,
       formId: lead.formId,
       pageId: lead.pageId,
+      name: lead.name,
+      email: lead.email,
+      phone: lead.phone,
+      customFields: lead.customFields,
       createdTime: lead.createdTime,
       receivedAt: lead.receivedAt,
     },

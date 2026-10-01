@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import type { WebSocketServer } from 'ws';
 import { env } from '../../config/env';
 import { MetaWebhookPayloadSchema, MetaLeadgenValueSchema } from './meta.schema';
+import { MetaApiError } from './meta.client';
 import { processLeadEvent } from '../lead/lead.service';
 import { broadcastLeadCreated } from '../../lib/websocket';
 
@@ -53,17 +54,22 @@ export default function createMetaWebhookRouter(wss: WebSocketServer): Router {
 
           if (lead) {
             console.log(
-              `Received Meta lead event\nleadgenId=${lead.metaLeadId}\nformId=${lead.formId}\npageId=${lead.pageId}\ncreatedTime=${lead.createdTime.toISOString()}`
+              `Lead persisted: metaLeadId=${lead.metaLeadId} formId=${lead.formId} name=${lead.name ?? 'n/a'}`
             );
             broadcastLeadCreated(wss, lead);
           } else {
-            console.log(`Duplicate lead event ignored: leadgenId=${event.leadgenId}`);
+            console.log(`Duplicate lead ignored: leadgenId=${event.leadgenId}`);
           }
         }
       }
 
       res.status(200).json({ received: true });
     } catch (err) {
+      if (err instanceof MetaApiError) {
+        console.error(`Meta API error for webhook: ${err.errorType} code=${err.errorCode} status=${err.statusCode}`);
+        res.status(502).json({ error: 'Failed to retrieve lead from Meta' });
+        return;
+      }
       console.error('Failed to process webhook:', err);
       res.status(500).json({ error: 'Internal server error' });
     }
