@@ -1,10 +1,19 @@
 import { Router, Request, Response } from 'express';
 import type { WebSocketServer } from 'ws';
+import rateLimit from 'express-rate-limit';
 import { env } from '../../config/env';
 import { MetaWebhookPayloadSchema, MetaLeadgenValueSchema } from './meta.schema';
 import { MetaApiError } from './meta.client';
 import { processLeadEvent } from '../lead/lead.service';
 import { broadcastLeadCreated } from '../../lib/websocket';
+
+const webhookRateLimit = rateLimit({
+  windowMs: 60 * 1000,
+  max: 60,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many requests' },
+});
 
 export default function createMetaWebhookRouter(wss: WebSocketServer): Router {
   const router = Router();
@@ -22,7 +31,7 @@ export default function createMetaWebhookRouter(wss: WebSocketServer): Router {
     res.status(403).json({ error: 'Forbidden' });
   });
 
-  router.post('/webhooks/meta', async (req: Request, res: Response) => {
+  router.post('/webhooks/meta', webhookRateLimit, async (req: Request, res: Response) => {
     const parsed = MetaWebhookPayloadSchema.safeParse(req.body);
 
     if (!parsed.success) {
