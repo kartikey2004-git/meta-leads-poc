@@ -1,0 +1,26 @@
+{
+  "expo": {
+    "name": "Meta Leads",
+    "slug": "meta-leads-mobile",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "platforms": [
+      "ios",
+      "android"
+    ],
+    "assetBundlePatterns": [
+      "**/*"
+    ],
+    "ios": {
+      "supportsTablet": false
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#ffffff"
+      }
+    },
+    "plugins": [
+      "expo-status-bar"
+    ]
+  }
+}
