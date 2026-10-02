@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import { createServer } from 'http';
 import { env } from './config/env';
 import { initWebSocket } from './lib/websocket';

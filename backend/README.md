@@ -39,30 +39,108 @@ REST (GET /leads) → PostgreSQL → initial state / recovery
 
 ## Setup
 
+### Quick Start with Mock Mode (No Meta Credentials Required)
+
 ```bash
 pnpm install
 cp .env.example .env
-# Edit .env — set META_VERIFY_TOKEN, META_APP_SECRET, META_PAGE_ACCESS_TOKEN, DATABASE_URL
+# Edit .env — set META_VERIFY_TOKEN, META_APP_SECRET, DATABASE_URL, and set META_MOCK_MODE=true
 docker compose up -d        # starts PostgreSQL
-pnpm prisma migrate dev     # run migrations
+pnpm prisma migrate deploy  # run migrations
+pnpm dev
+```
+
+### Production Setup with Real Meta API
+
+```bash
+pnpm install
+cp .env.example .env
+# Edit .env — set ALL variables including META_PAGE_ACCESS_TOKEN, and set META_MOCK_MODE=false
+docker compose up -d        # starts PostgreSQL
+pnpm prisma migrate deploy  # run migrations
 pnpm dev
 ```
 
 ## Environment variables
 
-| Variable | Description |
-|---|---|
-| `META_VERIFY_TOKEN` | Token you set in Meta's webhook configuration |
-| `META_APP_SECRET` | Your Meta app secret |
-| `META_PAGE_ACCESS_TOKEN` | Page Access Token with `leads_retrieval` + `ads_management` permissions |
-| `DATABASE_URL` | PostgreSQL connection string |
-| `PORT` | HTTP port (default: 3000) |
+| Variable | Required | Description |
+|---|---|---|
+| `META_VERIFY_TOKEN` | Always | Token you set in Meta's webhook configuration |
+| `META_APP_SECRET` | Always | Your Meta app secret |
+| `META_PAGE_ACCESS_TOKEN` | Only if `META_MOCK_MODE=false` | Page Access Token with `leads_retrieval` + `ads_management` permissions (not needed for mock mode) |
+| `META_MOCK_MODE` | Optional | Set to `true` to use mock fixtures instead of real Meta API (default: `false`) |
+| `DATABASE_URL` | Always | PostgreSQL connection string |
+| `PORT` | Optional | HTTP port (default: 3000) |
 
-## Meta API configuration
+## Mock Mode (Development)
+
+When `META_MOCK_MODE=true`, the application returns realistic fixture data instead of calling the Meta Graph API. This allows full end-to-end testing without a real Meta Page Access Token.
+
+### Testing in Mock Mode
+
+**1. Enable mock mode in `.env`:**
+```env
+META_MOCK_MODE=true
+META_PAGE_ACCESS_TOKEN=mock-token  # Can be any value
+```
+
+**2. Start the server:**
+```bash
+pnpm dev
+```
+
+**3. Trigger a mock lead using the dev endpoint:**
+```bash
+curl -X POST http://localhost:3000/dev/trigger-lead \
+  -H "Content-Type: application/json" \
+  -d '{
+    "leadgenId": "lead_dev_001",
+    "formId": "form_xyz",
+    "pageId": "page_123"
+  }'
+```
+
+**4. Verify the lead:**
+```bash
+curl http://localhost:3000/leads
+```
+
+### Mock Fixtures
+
+Mock mode returns realistic fixture data with:
+- Valid lead with all fields (name, email, phone, custom fields)
+- Lead with missing optional fields (email/phone)
+- Lead with custom fields only
+- Lead with empty values
+
+The response is identical to a real Meta API response, so the business logic behaves identically.
+
+**Example mock response:**
+```json
+{
+  "id": "lead_dev_001",
+  "created_time": "2024-10-01T14:30:00+0000",
+  "form_id": "form_456",
+  "field_data": [
+    {"name": "full_name", "values": ["Sarah Johnson"]},
+    {"name": "email", "values": ["sarah.johnson@example.com"]},
+    {"name": "phone_number", "values": ["+1-555-0123"]},
+    {"name": "company", "values": ["Acme Corp"]}
+  ]
+}
+```
+
+## Meta API Configuration (Production)
 
 The backend uses Meta Graph API **v21.0** (stable, supported until May 2027) to retrieve lead data. Set `META_PAGE_ACCESS_TOKEN` to a Page Access Token belonging to a user with the ADVERTISE task on the page. Required app permissions: `leads_retrieval`, `ads_management`, `pages_manage_ads`.
 
-The token is passed as an `Authorization: Bearer` header and is never logged, returned to clients, or included in URLs.
+**Important:** The token is passed as an `Authorization: Bearer` header and is never logged, returned to clients, or included in URLs.
+
+**To use real Meta API:**
+```env
+META_MOCK_MODE=false
+META_PAGE_ACCESS_TOKEN=your_real_page_access_token
+```
 
 ## Lead retrieval
 
@@ -108,7 +186,36 @@ pnpm lint        # eslint
 pnpm build       # tsc
 ```
 
-## Testing locally
+## Testing Locally
+
+### Mock Mode Testing (No Meta Token Required)
+
+```bash
+# 1. Start server with META_MOCK_MODE=true
+pnpm dev
+
+# 2. In another terminal, check dev info
+curl http://localhost:3000/dev/info
+
+# 3. Connect a WebSocket client (watch for leads)
+wscat -c ws://localhost:3000/ws
+
+# 4. In a third terminal, trigger a mock lead
+curl -X POST http://localhost:3000/dev/trigger-lead \
+  -H "Content-Type: application/json" \
+  -d '{
+    "leadgenId": "lead_mock_1",
+    "formId": "form_xyz",
+    "pageId": "page_123"
+  }'
+
+# 5. See WebSocket message with lead.created event
+
+# 6. Fetch all persisted leads
+curl http://localhost:3000/leads
+```
+
+### Real Meta API Testing (With Valid Token)
 
 ```bash
 # Webhook verification
@@ -129,10 +236,23 @@ curl http://localhost:3000/leads
 curl http://localhost:3000/health
 ```
 
-After Meta is configured, use the Meta Lead Testing Tool to send a real test lead. The expected flow:
+After Meta is configured, use the Meta Lead Testing Tool to send a real test lead. The expected flow with real API:
 
 ```
-Meta test lead → POST /webhooks/meta → Graph API → PostgreSQL → wscat receives lead.created
+Meta test lead → POST /webhooks/meta → Graph API v21.0 → PostgreSQL → wscat receives lead.created
+```
+
+### Automated Tests
+
+```bash
+# Run all tests (uses mocked fetch and Prisma)
+pnpm test
+
+# Run with watch mode
+pnpm test -- --watch
+
+# Run single test file
+pnpm test meta.client.test.ts
 ```
 
 ## Scaling note

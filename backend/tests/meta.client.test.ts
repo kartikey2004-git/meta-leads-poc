@@ -68,7 +68,9 @@ describe('getLead', () => {
     const [url, options] = mockFetch.mock.calls[0] as [string, RequestInit];
     expect(url).toContain('graph.facebook.com/v21.0/lead_123');
     expect(url).not.toContain('access_token');
-    expect((options.headers as Record<string, string>)['Authorization']).toBe('Bearer test-page-token');
+    expect((options.headers as Record<string, string>)['Authorization']).toBe(
+      'Bearer test-page-token'
+    );
   });
 
   it('throws MetaApiError on OAuthException (invalid token)', async () => {

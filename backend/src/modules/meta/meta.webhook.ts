@@ -38,7 +38,10 @@ export default function createMetaWebhookRouter(wss: WebSocketServer): Router {
           const leadgenParsed = MetaLeadgenValueSchema.safeParse(change.value);
 
           if (!leadgenParsed.success) {
-            console.warn('Received leadgen change with invalid value:', leadgenParsed.error.flatten());
+            console.warn(
+              'Received leadgen change with invalid value:',
+              leadgenParsed.error.flatten()
+            );
             continue;
           }
 
@@ -66,7 +69,9 @@ export default function createMetaWebhookRouter(wss: WebSocketServer): Router {
       res.status(200).json({ received: true });
     } catch (err) {
       if (err instanceof MetaApiError) {
-        console.error(`Meta API error for webhook: ${err.errorType} code=${err.errorCode} status=${err.statusCode}`);
+        console.error(
+          `Meta API error for webhook: ${err.errorType} code=${err.errorCode} status=${err.statusCode}`
+        );
         res.status(502).json({ error: 'Failed to retrieve lead from Meta' });
         return;
       }
